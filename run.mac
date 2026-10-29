@@ -1,0 +1,26 @@
+# run.mac
+# ビームを nEvents 個流し、結果を SiDetector.root に出力する
+#
+# 使い方:  ./exampleB1 run.mac [イベント数]
+
+# --- 出力の詳細度 ---
+/control/verbose 2
+/run/verbose 1
+/event/verbose 0
+/tracking/verbose 0
+
+# 500イベントごとに進捗を表示
+/run/printProgress 500
+
+# --- 初期化 ---
+/run/initialize
+
+# --- 入射粒子の設定 (マクロで定義) ---
+/gun/particle ion
+# Z=86, A=204, 電荷Q=43 (204Rn 43+)
+/gun/ion 86 204 43
+/gun/energy 146 MeV
+/gun/direction 0 0 1
+
+# --- 実行 ---
+/run/beamOn {nEvents}
