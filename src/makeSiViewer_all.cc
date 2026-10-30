@@ -76,6 +76,10 @@ canvas{display:block;width:100%}
 .bar{flex:1;max-width:320px;height:14px;border:1px solid var(--border)}
 .panel{border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--panel)}
 .stats{font-size:13px;margin-top:6px}
+button.tgl{border:1px solid var(--border);border-radius:5px;background:var(--panel);color:var(--fg);min-width:130px;font-weight:bold}
+button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
+.daqrow{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:6px;font-size:12px}
+.daqrow input[type=number]{width:64px}
 .note{font-size:12px;color:var(--muted);margin-top:8px}
 #tip{position:fixed;display:none;pointer-events:none;background:rgba(20,22,28,.92);color:#fff;
   padding:5px 8px;border-radius:6px;font-size:12px;line-height:1.5;z-index:10;white-space:pre}
@@ -135,6 +139,7 @@ canvas{display:block;width:100%}
     </div>
     <div style="margin-bottom:6px; font-size:12px;">
       <label><input type="checkbox" id="chkCluster" checked> <b>Enable Clustering</b></label>
+      <span id="clusterTimeWrapper"> within <input type="number" id="clusterNs" min="1" step="1" value="10" style="width:50px;"> ns</span>
     </div>
     <div style="border-top: 1px solid var(--border); padding-top: 4px; line-height:1.3; font-size:12px;" id="effDisplay">
       Efficiency: ---
@@ -163,6 +168,25 @@ canvas{display:block;width:100%}
         </div>
       </div>
     </div>
+  </fieldset>
+
+  <fieldset style="border-color:#2563eb; background:rgba(37,99,235,0.05);">
+    <legend style="color:#2563eb; font-weight:bold;">DAQ Mode</legend>
+    <div class="daqrow">
+      <button class="tgl" id="btnDead" aria-pressed="false">Dead Time</button>
+      ignore hits within <input type="number" id="daqDead" min="0" step="1" value="20"> ns
+      <span class="note" style="margin:0;">(same event &amp; same pixel)</span>
+    </div>
+    <div class="daqrow">
+      <button class="tgl" id="btnCoin" aria-pressed="false">Coincidence</button>
+      sum hits within <input type="number" id="daqCoin" min="0" step="0.1" value="1"> ns
+      <span class="note" style="margin:0;">(same event)</span>
+    </div>
+    <div class="daqrow">
+      <button class="tgl" id="btnDaqThr" aria-pressed="false">Energy Threshold</button>
+      ignore hits &le; <input type="number" id="daqThr" min="0" step="0.01" value="0.1"> MeV
+    </div>
+    <div class="note" style="margin-top:2px;">Dead Time / Threshold: applied to 3D, Efficiency, and histograms.<br>Coincidence: applied to Efficiency &amp; Histograms only (not 3D).</div>
   </fieldset>
 </div>
 
@@ -268,6 +292,8 @@ sel.addEventListener('change', function(){
 
 var G, EV, PIX, EN, T, PDG, N, NTOT, ELS, C, EVSEEN, HIST_IMP, HIST_DEC, PFACE;
 var rawEmax, MAXEV, rawTmin, rawTmax, BW, EMAX, NB;
+var RAWE_BASE, SORT_IDX, AIDX, NAI = 0, DS_VER = 0, QEV, QPIX, QEN, QT, QPDG, NQ = 0, HKEY = '';
+var A_COINC_E; // 各ヒット(AIDX)に対応するコインシデンス合算エネルギーを保持
 
 var FACE_NAMES = ['+z (Back)', '+x (Side)', '-x (Side)', '+y (Side)', '-y (Side)'];
 var VH = 700, HH = 220, HL = 64, HR = 12, HT = 14, HB = 34, DEAD = '#b9bfc8';
@@ -284,14 +310,16 @@ function fmt(v){
 }
 
 var S = {
-  ptype: 'all', clustering: true,
+  ptype: 'all', clustering: true, clusterNs: 10,
   showAllEv: true, evID: 0,
   showAllPix: true, pixID: 0,
   mode: 'all', thr: 100, emin: 0, emax: 10, vmin: 0, vmax: 10,
   tmin: 0, tmax: 100, tcurrent: 100, vtmin: 0, vtmax: 100,
   logxTime: false, logyTime: true,
   yaw: 190 * Math.PI / 180, pitch: 10 * Math.PI / 180, zoom: 1,
-  faceOn: [true, true, true, true, true], alpha: 1, logc: false, logy: true
+  faceOn: [true, true, true, true, true], alpha: 1, logc: false, logy: true,
+  // DAQ mode (times entered in ns, energies in MeV; hit times in the data are in us)
+  daq: {dtOn: false, dtNs: 20, coOn: false, coNs: 1, thOn: false, thMeV: 0.1}
 };
 var YAW0 = S.yaw, PITCH0 = S.pitch;
 var VIEWS = {'in': [190, 10], 'obl': [155, 22], 'back': [-25, 20]};
@@ -315,8 +343,9 @@ function initDataset() {
   if (!(rawEmax > 0)) rawEmax = 1;
   if (rawTmin === Infinity) { rawTmin = 0; rawTmax = 100; }
 
-  var eMargin = rawEmax * 0.05; 
-  rawEmax += eMargin;
+  RAWE_BASE = rawEmax;
+  prepareDAQ();                       // sort hits, build DAQ-processed hit list
+  rawEmax = energyTop() * 1.05;       // include coincidence-summed energies when enabled
   var tMargin = (rawTmax - rawTmin) * 0.05; 
   if (tMargin <= 0) tMargin = 1.0;
   rawTmin = Math.max(0, rawTmin - tMargin); 
@@ -377,7 +406,7 @@ function getParticleCategory(pdg) {
   if (pdg === 1000020040) return 'alpha';
   if (pdg === 22) return 'gamma';
   if (pdg === 11 || pdg === -11) return 'electron';
-  if (pdg === 1000862040) return 'heavy'; // 204Rn
+  if (pdg === 1000841900) return 'heavy'; // 190Po (PDG = 10LZZZAAAI)
   return 'other';
 }
 
@@ -434,29 +463,146 @@ function buildElements(){
   return els;
 }
 
+// ---------------------------------------------------------------------------
+// DAQ mode
+//   Stage A (dead time -> threshold): applied to 3D counts and histograms.
+//   Stage B (coincidence): applied to the energy / time distributions only.
+//   Hit times are in us, so ns values are multiplied by 1e-3.
+// ---------------------------------------------------------------------------
+function prepareDAQ() {
+  DS_VER++; HKEY = '';
+  var sorted = true, i;
+  for (i = 1; i < N; i++) {
+    if (EV[i] < EV[i-1] || (EV[i] === EV[i-1] && T[i] < T[i-1])) { sorted = false; break; }
+  }
+  SORT_IDX = new Int32Array(N);
+  for (i = 0; i < N; i++) SORT_IDX[i] = i;
+  if (!sorted) SORT_IDX.sort(function(a, b){ return (EV[a] - EV[b]) || (T[a] - T[b]) || (a - b); });
+  buildA();
+}
+
+// Stage A: energy threshold, then (non-paralyzable) dead time per event & pixel.
+function buildA() {
+  var D = S.daq, dt = D.dtNs * 1e-3 + 1e-9;
+  var out = new Int32Array(N), n = 0;
+  var lastT = new Float64Array(NTOT), lastEv = new Int32Array(NTOT).fill(-1);
+  for (var m = 0; m < N; m++) {
+    var k = SORT_IDX[m], p = PIX[k];
+    if (D.thOn && EN[k] <= D.thMeV) continue;
+    if (D.dtOn && p >= 0 && p < NTOT) {
+      if (lastEv[p] === EV[k] && T[k] - lastT[p] <= dt) continue;
+      lastEv[p] = EV[k]; lastT[p] = T[k];
+    }
+    out[n++] = k;
+  }
+  AIDX = out.slice(0, n); NAI = n; HKEY = '';
+}
+
+// Largest coincidence-summed energy over all stage-A hits (used for the energy axis range).
+function coincMax() {
+  var win = S.daq.coNs * 1e-3 + 1e-9, gOn = false, gEv = -1, gT0 = 0, gE = 0, mx = 0;
+  for (var m = 0; m < NAI; m++) {
+    var k = AIDX[m];
+    if (gOn && EV[k] === gEv && T[k] - gT0 <= win) gE += EN[k];
+    else { if (gOn && gE > mx) mx = gE; gOn = true; gEv = EV[k]; gT0 = T[k]; gE = EN[k]; }
+  }
+  if (gOn && gE > mx) mx = gE;
+  return mx;
+}
+function energyTop() { return (S.daq.coOn) ? Math.max(RAWE_BASE, coincMax()) : RAWE_BASE; }
+
+// Stage B: hits used by the energy / time distributions.
+// View filters (particle, face, event, pixel) are applied first, then coincidence summing.
+// A coincidence group takes its time from the first hit; pixel and PDG from its highest-energy hit.
+function buildQ() {
+  var D = S.daq;
+  var key = [DS_VER, S.ptype, S.faceOn.join(), S.showAllEv ? 1 : 0, S.evID, S.showAllPix ? 1 : 0, S.pixID,
+             D.dtOn ? D.dtNs : '-', D.thOn ? D.thMeV : '-', D.coOn ? D.coNs : '-'].join('|');
+  if (key === HKEY) return;
+  HKEY = key;
+  
+  var co = D.coOn, win = D.coNs * 1e-3 + 1e-9;
+  QEV = new Int32Array(NAI); QPIX = new Int32Array(NAI); QEN = new Float64Array(NAI);
+  QT = new Float64Array(NAI); QPDG = new Int32Array(NAI); NQ = 0;
+  A_COINC_E = new Float64Array(NAI); // 初期化
+  
+  var gOn = false, gEv = -1, gT0 = 0, gE = 0, gMax = -1, gPix = 0, gPdg = 0;
+  var group_m = []; // 同一コインシデンスグループに属する AIDX のインデックスを保持
+  
+  function put(ev, pix, e, t, pdg) { QEV[NQ] = ev; QPIX[NQ] = pix; QEN[NQ] = e; QT[NQ] = t; QPDG[NQ] = pdg; NQ++; }
+  
+  for (var m = 0; m < NAI; m++) {
+    var k = AIDX[m], pdg = PDG ? PDG[k] : 0, p = PIX[k];
+    if (!matchParticleFilter(pdg) || !faceSelected(p) || (!S.showAllEv && EV[k] !== S.evID) || (!S.showAllPix && p !== S.pixID)) continue;
+    var e = EN[k], t = T[k];
+    
+    if (!co) { 
+      put(EV[k], p, e, t, pdg); 
+      A_COINC_E[m] = e; // コインシデンスOFF時は単独のエネルギーを記録
+      continue; 
+    }
+    
+    if (gOn && EV[k] === gEv && t - gT0 <= win) {
+      gE += e;
+      if (e > gMax) { gMax = e; gPix = p; gPdg = pdg; }
+      group_m.push(m);
+    } else {
+      if (gOn) {
+        put(gEv, gPix, gE, gT0, gPdg);
+        // グループが確定したら、属する全てのヒットに合算エネルギーを書き込む
+        for (var i = 0; i < group_m.length; i++) A_COINC_E[group_m[i]] = gE;
+      }
+      gOn = true; gEv = EV[k]; gT0 = t; gE = e; gMax = e; gPix = p; gPdg = pdg;
+      group_m = [m];
+    }
+  }
+  if (gOn) {
+    put(gEv, gPix, gE, gT0, gPdg);
+    for (var i = 0; i < group_m.length; i++) A_COINC_E[group_m[i]] = gE;
+  }
+}
+
 function computeCounts(){
   C.imp.fill(0); C.dec.fill(0); C.detCounts = 0;
   EVSEEN.imp.fill(0); EVSEEN.dec.fill(0);
-  var uniqueHits = {}; 
-  for (var k = 0; k < N; k++) {
-    var pdgCode = PDG ? PDG[k] : 0;
-    if (!matchParticleFilter(pdgCode)) continue;
-    if (!S.showAllEv && EV[k] !== S.evID) continue;
+  
+  // --- 1. 3D表示用（コインシデンス合算後のエネルギーでフィルタ） ---
+  for (var mi = 0; mi < NAI; mi++) {
+    var e = A_COINC_E[mi]; // ここが単独エネルギー(EN[k])ではなく合算エネルギーになる
+    if (e <= 0) continue;  // buildQ() のフィルタで弾かれたものは e=0 になるのでスキップ
+    
+    var k = AIDX[mi];
     var p = PIX[k];
-    if (!faceSelected(p)) continue;   // only hits on the selected faces
-    if (!S.showAllPix && p !== S.pixID) continue;
-    var e = EN[k], t = T[k];
+    var t = T[k];
+    
+    // S.emin, S.emax (UI上のエネルギーフィルター) は「合算エネルギー(e)」と比較される
     if (e < S.emin || e > S.emax || t < S.tmin || t > S.tcurrent || p < 0 || p >= NTOT) continue;
-    if (S.clustering) {
-      var tKey = Math.floor(t * 100); 
-      var uniqKey = EV[k] + "_" + pdgCode + "_" + tKey;
-      if (!uniqueHits[uniqKey]) { uniqueHits[uniqKey] = true; C.detCounts++; }
-    } else {
-      C.detCounts++;
-    }
+    
     if (e >= S.thr) { C.imp[p]++; EVSEEN.imp[EV[k]] = 1; }
     else            { C.dec[p]++; EVSEEN.dec[EV[k]] = 1; }
   }
+
+  // --- 2. Efficiency計算用（前回修正した通りでOK） ---
+  var uniqueHits = {}; 
+  var clusterUs = S.clusterNs / 1000;
+  
+  for (var q = 0; q < NQ; q++) {
+      var ev = QEV[q];
+      var p = QPIX[q];
+      var e = QEN[q];
+      var t = QT[q];
+      var pdgCode = QPDG[q];
+      
+      if (e < S.emin || e > S.emax || t < S.tmin || t > S.tcurrent || p < 0 || p >= NTOT) continue;
+      
+      if (S.clustering) {
+        var tKey = clusterUs > 0 ? Math.floor(t / clusterUs) : t; 
+        var uniqKey = ev + "_" + pdgCode + "_" + tKey;
+        if (!uniqueHits[uniqKey]) { uniqueHits[uniqKey] = true; C.detCounts++; }
+      } else {
+        C.detCounts++;
+      }
+    }
 }
 
 function buildHist(){
@@ -464,13 +610,12 @@ function buildHist(){
   EMAX = Math.ceil(rawEmax / BW) * BW;
   NB = Math.round(EMAX / BW) + 1;
   HIST_IMP = new Float64Array(NB); HIST_DEC = new Float64Array(NB);
-  for (var k = 0; k < N; k++) {
-    var pdgCode = PDG ? PDG[k] : 0;
-    if (!matchParticleFilter(pdgCode) || !faceSelected(PIX[k]) || (!S.showAllEv && EV[k] !== S.evID) || (!S.showAllPix && PIX[k] !== S.pixID)) continue;
-    var t = T[k];
+  buildQ();
+  for (var q = 0; q < NQ; q++) {
+    var t = QT[q];
     if (t < S.tmin || t > S.tcurrent) continue; 
-    var b = Math.min(NB - 1, Math.max(0, Math.floor(EN[k] / BW)));
-    if (EN[k] >= S.thr) HIST_IMP[b]++; else HIST_DEC[b]++;
+    var b = Math.min(NB - 1, Math.max(0, Math.floor(QEN[q] / BW)));
+    if (QEN[q] >= S.thr) HIST_IMP[b]++; else HIST_DEC[b]++;
   }
 }
 function countFor(cat, id){ return (cat === 'imp') ? C.imp[id] : (cat === 'dec') ? C.dec[id] : C.imp[id] + C.dec[id]; }
@@ -628,9 +773,9 @@ function drawTimeHist() {
   var tmin_view = S.vtmin, tmax_view = Math.max(S.vtmax, S.vtmin + 1e-9), logX = S.logxTime, LMIN = Math.log10(tmin_view + T_EPS), LMAX = Math.log10(tmax_view + T_EPS);
   function xOf(t) { return logX ? HL + (Math.log10(t + T_EPS) - LMIN) / (LMAX - LMIN) * pw : HL + (t - tmin_view) / (tmax_view - tmin_view) * pw; }
   var binsI = new Float64Array(Math.ceil(pw)), binsD = new Float64Array(Math.ceil(pw)), ymax = 1;
-  for (var k = 0; k < N; k++) {
-    if (!matchParticleFilter(PDG ? PDG[k] : 0) || !faceSelected(PIX[k]) || (!S.showAllEv && EV[k] !== S.evID) || (!S.showAllPix && PIX[k] !== S.pixID)) continue;
-    var e = EN[k], t = T[k];
+  buildQ();
+  for (var q = 0; q < NQ; q++) {
+    var e = QEN[q], t = QT[q];
     if (e < S.emin || e > S.emax) continue;
     var xpx = Math.floor(xOf(t) - HL);
     if (xpx >= 0 && xpx < pw) { if (e >= S.thr) { binsI[xpx]++; if (binsI[xpx] > ymax) ymax = binsI[xpx]; } else { binsD[xpx]++; if (binsD[xpx] > ymax) ymax = binsD[xpx]; } }
@@ -675,13 +820,15 @@ function updateStats(){
   for (id = 0; id < NTOT; id++) { nImp += C.imp[id]; nDec += C.dec[id]; var t = C.imp[id] + C.dec[id]; if (t > 0) det++; if (t > mx) mx = t; }
   for (k = 0; k <= MAXEV; k++) { if (EVSEEN.imp[k]) evI++; if (EVSEEN.dec[k]) evD++; if (EVSEEN.imp[k] || EVSEEN.dec[k]) evA++; }
   $('stats').innerHTML = 'Selected Energy: <b>' + fmt(S.emin) + ' - ' + fmt(S.emax) + ' MeV</b> / Time Window: <b>' + fmt(S.tmin) + ' - ' + fmt(S.tcurrent) + ' µs</b> <span style="color:#888;">(Max ' + fmt(S.tmax) + ' µs)</span><br>Hits: Implantation <b>' + nImp + '</b> / Decay <b>' + nDec + '</b><br>' + (S.showAllPix ? 'Hit Pixels: <b>' + det + '</b> / ' + NTOT + '<br>' : 'Showing Pixel: <b>pixelID ' + S.pixID + '</b> only<br>') + (S.showAllEv ? 'Hit Events: <b>' + evA + '</b> / ' + DATA.nEvents + ' (Implantation ' + evI + ', Decay ' + evD + ')' : 'Showing Event: <b>Event ' + S.evID + '</b>');
+  var D = S.daq;
+  $('stats').innerHTML += '<br><span style="font-size:12px;color:#2563eb;">DAQ: Dead time <b>' + (D.dtOn ? D.dtNs + ' ns' : 'OFF') + '</b> / Coincidence <b>' + (D.coOn ? D.coNs + ' ns (hist only)' : 'OFF') + '</b> / Threshold <b>' + (D.thOn ? '&gt; ' + D.thMeV + ' MeV' : 'OFF') + '</b> (hits kept ' + NAI + ' / ' + N + ')</span>';
   var ptype = S.ptype, genTotal = 0, pLabel = "";
   if (ptype === 'alpha') { genTotal = DATA.nGenAlphas; pLabel = "Alpha"; } else if (ptype === 'gamma') { genTotal = DATA.nGenGammas; pLabel = "Gamma"; } else if (ptype === 'electron') { genTotal = DATA.nGenElectrons; pLabel = "Beta (e±)"; } else if (ptype === 'heavy') { genTotal = DATA.nEvents; pLabel = "Heavy Ion (Beam)"; }
   $('effDisplay').innerHTML = (ptype !== 'all') ? pLabel + ' Efficiency: <b>' + (genTotal > 0 ? (C.detCounts / genTotal * 100).toFixed(2) : "0.00") + '%</b><br><span style="font-size:11px;color:#888;">(Detected: ' + C.detCounts + ' / Generated: ' + genTotal + ')</span>' : 'Efficiency: Please select a particle';
 }
 
 var pendRefresh = false, pend3D = false;
-function refresh(){ computeCounts(); draw3D(); buildHist(); drawHist(); drawTimeHist(); updateStats(); }
+ function refresh(){ buildQ(); computeCounts(); draw3D(); buildHist(); drawHist(); drawTimeHist(); updateStats(); }
 function scheduleRefresh(){ if (pendRefresh) return; pendRefresh = true; requestAnimationFrame(function(){ pendRefresh = false; refresh(); }); }
 function scheduleDraw3D(){ if (pend3D) return; pend3D = true; requestAnimationFrame(function(){ pend3D = false; draw3D(); }); }
 function syncInputs(){ $('emin').value = Math.round(S.emin * 1000) / 1000; $('emax').value = Math.round(S.emax * 1000) / 1000; $('tmin').value = Math.round(S.tmin * 10000) / 10000; $('tmax').value = Math.round(S.tmax * 10000) / 10000; $('timeSlider').value = timeToSlider(S.tcurrent); $('timeCurrentDisplay').textContent = fmt(S.tcurrent); }
@@ -698,7 +845,21 @@ $('btnPlayTime').addEventListener('click', function(){ if (playTimer) { stopTime
 $('timeSlider').addEventListener('input', function(){ stopTimePlay(); S.tcurrent = sliderToTime(parseFloat(this.value)); $('timeCurrentDisplay').textContent = fmt(S.tcurrent); scheduleRefresh(); });
 
 Array.prototype.forEach.call(document.querySelectorAll('input[name=ptype]'), function(el){ el.addEventListener('change', function(){ if (el.checked) { S.ptype = el.value; refresh(); } }); });
-$('chkCluster').addEventListener('change', function(){ S.clustering = this.checked; refresh(); });
+$('chkCluster').addEventListener('change', function(){ 
+  S.clustering = this.checked; 
+  var wrap = $('clusterTimeWrapper');
+  if(wrap) {
+    wrap.style.opacity = S.clustering ? '1' : '0.4';
+    wrap.style.pointerEvents = S.clustering ? 'auto' : 'none';
+  }
+  refresh(); 
+});
+
+$('clusterNs').addEventListener('change', function(){ 
+  S.clusterNs = Math.max(1, parseFloat(this.value) || 10);
+  this.value = S.clusterNs;
+  refresh(); 
+});
 $('chkAllEv').addEventListener('change', function(){ S.showAllEv = this.checked; var ctl = $('evControls'); ctl.style.opacity = S.showAllEv ? '0.4' : '1'; ctl.style.pointerEvents = S.showAllEv ? 'none' : 'auto'; refresh(); });
 $('evSlider').addEventListener('input', function(){ var v = parseInt(this.value, 10); $('evNum').value = v; S.evID = v; scheduleRefresh(); });
 $('evNum').addEventListener('change', function(){ var v = parseInt(this.value, 10); if (isNaN(v)) v = 0; v = clamp(v, 0, MAXEV); this.value = v; $('evSlider').value = v; S.evID = v; refresh(); });
@@ -706,6 +867,29 @@ $('chkAllPix').addEventListener('change', function(){ S.showAllPix = this.checke
 $('pixSlider').addEventListener('input', function(){ var v = parseInt(this.value, 10); $('pixNum').value = v; S.pixID = v; scheduleRefresh(); });
 $('pixNum').addEventListener('change', function(){ var v = parseInt(this.value, 10); if (isNaN(v)) v = 0; v = clamp(v, 0, NTOT - 1); this.value = v; $('pixSlider').value = v; S.pixID = v; refresh(); });
 Array.prototype.forEach.call(document.querySelectorAll('input[name=mode]'), function(el){ el.addEventListener('change', function(){ if (el.checked) { S.mode = el.value; draw3D(); } }); });
+function setTgl(btn, on) { btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+function readDAQ() {
+  var D = S.daq;
+  D.dtNs = Math.max(0, parseFloat($('daqDead').value) || 0);
+  D.coNs = Math.max(0, parseFloat($('daqCoin').value) || 0);
+  D.thMeV = Math.max(0, parseFloat($('daqThr').value) || 0);
+}
+function applyDAQ() {
+  readDAQ();
+  buildA();
+  var oldE = EMAX;
+  rawEmax = energyTop() * 1.05;
+  buildHist();                         // recomputes EMAX / NB for the new energy range
+  if (S.emax >= oldE - 1e-9) S.emax = EMAX;
+  if (S.vmax >= oldE - 1e-9) S.vmax = EMAX;
+  S.emin = clamp(S.emin, 0, EMAX); S.emax = clamp(S.emax, 0, EMAX);
+  S.vmin = clamp(S.vmin, 0, EMAX); S.vmax = clamp(S.vmax, 0, EMAX);
+  syncInputs(); refresh();
+}
+$('btnDead').addEventListener('click', function(){ S.daq.dtOn = !S.daq.dtOn; setTgl(this, S.daq.dtOn); applyDAQ(); });
+$('btnCoin').addEventListener('click', function(){ S.daq.coOn = !S.daq.coOn; setTgl(this, S.daq.coOn); applyDAQ(); });
+$('btnDaqThr').addEventListener('click', function(){ S.daq.thOn = !S.daq.thOn; setTgl(this, S.daq.thOn); applyDAQ(); });
+['daqDead', 'daqCoin', 'daqThr'].forEach(function(id){ $(id).addEventListener('change', applyDAQ); });
 $('thr').addEventListener('change', function(){ S.thr = Math.max(0, parseFloat($('thr').value) || 0); buildHist(); refresh(); });
 $('binw').addEventListener('change', function(){ var oldEmax = EMAX; buildHist(); if (S.emax >= oldEmax) S.emax = EMAX; if (S.vmax >= oldEmax) S.vmax = EMAX; syncInputs(); refresh(); });
 $('btnLogY').addEventListener('click', function(){ S.logy = !S.logy; this.textContent = 'Y-axis: ' + (S.logy ? 'Log' : 'Linear'); drawHist(); });

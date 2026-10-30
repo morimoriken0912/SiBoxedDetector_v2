@@ -1,0 +1,75 @@
+/// \file SteppingAction.cc
+/// \brief Implementation of the B1::SteppingAction class
+
+#include "SteppingAction.hh"
+
+#include "DetectorConstruction.hh"
+#include "EventAction.hh"
+
+#include "G4LogicalVolume.hh"
+#include "G4RunManager.hh"
+#include "G4Step.hh"
+
+namespace B1
+{
+
+//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
+
+SteppingAction::SteppingAction(EventAction* eventAction) : fEventAction(eventAction) {}
+
+//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
+
+void SteppingAction::UserSteppingAction(const G4Step* step)
+{
+  G4Track* track = step->GetTrack();
+  if (track->GetCurrentStepNumber() == 1) {
+    G4String pName = track->GetDefinition()->GetParticleName();
+    G4String pType = track->GetDefinition()->GetParticleType(); // 粒子タイプを取得
+
+    if (pName == "alpha") {
+      fEventAction->AddGenAlpha();
+    }
+    else if (pName == "gamma") {
+      fEventAction->AddGenGamma();
+    }
+    else if (pName == "e-" || pName == "e+") {
+      fEventAction->AddGenElectron();
+    }
+    else if (track->GetDefinition()->GetPDGEncoding() == 1000862040) {
+    }
+    else if (pType == "nucleus") {
+      fEventAction->AddGenHeavyIon(); // その他の重イオンもカウント
+    }
+  }
+
+  // （以降の既存コード...）
+  // ↑↑↑ ここまで ↑↑↑
+
+  if (!fScoringVolume) {
+    const auto detConstruction = static_cast<const DetectorConstruction*>(
+      G4RunManager::GetRunManager()->GetUserDetectorConstruction());
+    fScoringVolume = detConstruction->GetScoringVolume();
+  }
+
+  // get volume of the current step
+  auto touchable = step->GetPreStepPoint()->GetTouchableHandle();
+  G4LogicalVolume* volume = touchable->GetVolume()->GetLogicalVolume();
+
+  // 有感部(SiSensitive)以外は無視
+  if (volume != fScoringVolume) return;
+
+  G4double edep = step->GetTotalEnergyDeposit();
+  if (edep <= 0.) return;
+
+  G4int pixelID = touchable->GetCopyNumber(1);
+  G4double hitTime = step->GetPreStepPoint()->GetGlobalTime();
+  
+  // ↓↓↓ 引数を追加 ↓↓↓
+  G4int pdg = track->GetDefinition()->GetPDGEncoding(); // 粒子の種類（PDGコード）を取得
+  fEventAction->AddPixelEdep(pixelID, edep, hitTime, pdg); // 4つ目の引数として渡す
+  // ↑↑↑ ここまで ↓↓↓
+}
+
+//....oooOO0OOooo........oooOO0OOooo........oooOO0OOooo........oooOO0OOooo......
+
+}  // namespace B1
