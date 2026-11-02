@@ -5,7 +5,7 @@
 # 実行場所 : src/ ディレクトリ  (./change_beam.sh)
 # 書き換え : ../build/run.mac            ( /gun/ion, /gun/energy, nucleusLimits, コメント )
 #            SteppingAction.cc           ( ビーム粒子判定の PDG コード(数値部分のみ) )
-#            makeSiViewer_all*.cc        ( 'heavy' 判定の PDG コード )
+#            makeSiViewer_all*.cc        ( 'heavy' 判定の PDG コード、HTML に表示するビーム情報 )
 #            execute_makeSiViewer.sh     ( 出力HTMLファイル名 )
 #
 # 使い方 :
@@ -76,6 +76,7 @@ else
   PDG=$((1000000000 + Z * 10000 + A * 10))
 fi
 LABEL="${A}${SYM}"
+if [ "$DECAY_ONLY_BEAM" -eq 1 ]; then FULL_JS=false; else FULL_JS=true; fi   # HTML 表示用 (full-chain か否か)
 
 echo "=== ビーム粒子の設定 ==="
 echo "  粒子     : ${LABEL}  (Z=${Z}, N=${N}, A=${A}, Q=${Q}+)"
@@ -148,10 +149,15 @@ apply_sed "$STEPPING" \
 
 # ------------------------------ 3) viewer ------------------------------------
 echo "[3] viewer"
+BEAM_JS="var BEAM_INFO = {label: '${LABEL}', symbol: '${SYM}', Z: ${Z}, A: ${A}, Q: ${Q}, E: ${E}, fullChain: ${FULL_JS}};"
 for v in "${VIEWERS[@]}"; do
   apply_sed "$v" \
     "s|if (pdg === [0-9][0-9]*) return 'heavy';.*|if (pdg === ${PDG}) return 'heavy'; // ${LABEL} (PDG = 10LZZZAAAI)|" \
     "if (pdg === ${PDG}) return 'heavy';"
+  # HTML に表示するビーム情報 (粒子, Z, A, 電荷, エネルギー, full-chain か否か)
+  apply_sed "$v" \
+    "s|^var BEAM_INFO = .*|${BEAM_JS} // change_beam.sh が書き換える|" \
+    "${BEAM_JS}"
 done
 
 # ------------------------------ 4) execute script ----------------------------

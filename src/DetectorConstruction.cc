@@ -16,7 +16,7 @@ G4VPhysicalVolume* DetectorConstruction::Construct() {
   G4NistManager* nist = G4NistManager::Instance();
 
   // ★修正点1: 検出器の大型化に合わせ、シミュレーション空間を十分に拡張 (20cm -> 100cm)
-  G4double env_sizeXY = 50 * cm, env_sizeZ = 50 * cm;
+  G4double env_sizeXY = 50 * cm, env_sizeZ = 100 * cm;
   G4Material* env_mat = nist->FindOrBuildMaterial("G4_Galactic");
   G4bool checkOverlaps = true;
 

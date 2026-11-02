@@ -91,6 +91,7 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
   <select id="datasetSelect"></select>
 </div>
 <div class="sub" id="info"></div>
+<div class="sub" id="beamInfo" style="font-size:13px;"></div>
 
 <div class="controls">
   <fieldset>
@@ -276,6 +277,21 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
 var ALL_DATA = /*DATA_JSON*/null;
 var DATA = ALL_DATA[0];
 
+// ビーム設定。change_beam.sh がこの1行を書き換える (手で編集しても可)。行頭の "var BEAM_INFO = " は変えないこと。
+var BEAM_INFO = {label: '225Np', symbol: 'Np', Z: 93, A: 225, Q: 50, E: 600, fullChain: true}; // change_beam.sh が書き換える
+
+function showBeamInfo() {
+  var b = BEAM_INFO, nn = b.A - b.Z;
+  var decay = b.fullChain
+    ? '<b style="color:#d97706;">Full decay chain</b> (no restriction)'
+    : '<b style="color:#0d9488;">' + b.label + ' only</b> (nucleusLimits ' + b.A + ' ' + b.A + ' ' + b.Z + ' ' + b.Z + '; daughters do not decay)';
+  $('beamInfo').innerHTML =
+    '<b>Beam:</b> ' + b.label + ' (Z=' + b.Z + ', N=' + nn + ', A=' + b.A + ')' +
+    ' / <b>Charge:</b> ' + b.Q + '+' +
+    ' / <b>Energy:</b> ' + b.E + ' MeV' +
+    ' / <b>Decay:</b> ' + decay;
+}
+
 // Populate dropdown
 var sel = document.getElementById('datasetSelect');
 ALL_DATA.forEach(function(d, idx) {
@@ -385,6 +401,7 @@ function initDataset() {
   
   $('info').textContent = 'File: ' + DATA.file + ' / Events: ' + DATA.nEvents +
     ' / Hit rows: ' + N + ' / Pixels: ' + G.nx + 'x' + G.ny + 'x' + G.nz + ' / Pitch: ' + G.pitch + ' mm';
+  showBeamInfo();
   $('timeInfo').textContent = 'Recorded Time: Min ' + fmt(rawTmin) + ' µs to Max ' + fmt(rawTmax) + ' µs';
 
   syncInputs();
@@ -406,7 +423,7 @@ function getParticleCategory(pdg) {
   if (pdg === 1000020040) return 'alpha';
   if (pdg === 22) return 'gamma';
   if (pdg === 11 || pdg === -11) return 'electron';
-  if (pdg === 1000841900) return 'heavy'; // 190Po (PDG = 10LZZZAAAI)
+  if (pdg === 1000932250) return 'heavy'; // 225Np (PDG = 10LZZZAAAI)
   return 'other';
 }
 
