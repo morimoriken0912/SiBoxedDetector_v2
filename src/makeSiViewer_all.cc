@@ -26,13 +26,13 @@
 // ---------------------------------------------------------------------------
 // Detector geometry parameters. Must match those in DetectorConstruction.cc
 // ---------------------------------------------------------------------------
-static const int kNPixX = 20;        // x方向の素子数
-static const int kNPixY = 30;        // y方向の素子数
-static const int kNPixZ = 10;        // z方向の素子数
+static const int kNPixX = 14;        // x方向の素子数
+static const int kNPixY = 14;        // y方向の素子数
+static const int kNPixZ = 14;        // z方向の素子数
 static const double kPixSize = 7.5;  // Pixel size [mm]
 static const double kSensSize = 7.05;// Sensitive area size [mm]
 static const double kPixThick = 0.15;// Pixel thickness [mm]
-static const double kBinWidth = 0.1; // Default histogram bin width [MeV]
+static const double kBinWidth = 0.01; // Default histogram bin width [MeV]
 
 // ---------------------------------------------------------------------------
 // HTML Template. Data will be embedded in place of /*DATA_JSON*/null.
@@ -140,7 +140,7 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
     </div>
     <div style="margin-bottom:6px; font-size:12px;">
       <label><input type="checkbox" id="chkCluster" checked> <b>Enable Clustering</b></label>
-      <span id="clusterTimeWrapper"> within <input type="number" id="clusterNs" min="1" step="1" value="10" style="width:50px;"> ns</span>
+      <span id="clusterTimeWrapper"> within <input type="number" id="clusterNs" min="1" step="1" value="20" style="width:50px;"> ns</span>
     </div>
     <div style="border-top: 1px solid var(--border); padding-top: 4px; line-height:1.3; font-size:12px;" id="effDisplay">
       Efficiency: ---
@@ -180,7 +180,7 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
     </div>
     <div class="daqrow">
       <button class="tgl" id="btnCoin" aria-pressed="false">Coincidence</button>
-      sum hits within <input type="number" id="daqCoin" min="0" step="0.1" value="1"> ns
+      sum hits within <input type="number" id="daqCoin" min="0" step="0.1" value="20"> ns
       <span class="note" style="margin:0;">(same event)</span>
     </div>
     <div class="daqrow">
@@ -211,7 +211,7 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
       <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;">
         <div style="font-weight:bold;">Energy Distribution</div>
         <div style="font-size:12px;">
-          <label style="margin-right:8px;">Bin Width: <input type="number" id="binw" min="0.1" step="0.1" value="0.1" style="width:64px;"> MeV</label>
+          <label style="margin-right:8px;">Bin Width: <input type="number" id="binw" min="0.01" step="0.1" value="0.01" style="width:64px;"> MeV</label>
           <button id="btnLogY" style="margin:0;">Y-axis: Log</button>
         </div>
       </div>
@@ -278,7 +278,7 @@ var ALL_DATA = /*DATA_JSON*/null;
 var DATA = ALL_DATA[0];
 
 // ビーム設定。change_beam.sh がこの1行を書き換える (手で編集しても可)。行頭の "var BEAM_INFO = " は変えないこと。
-var BEAM_INFO = {label: '225Np', symbol: 'Np', Z: 93, A: 225, Q: 50, E: 600, fullChain: true}; // change_beam.sh が書き換える
+var BEAM_INFO = {label: '190Po', symbol: 'Po', Z: 84, A: 190, Q: 42, E: 130, fullChain: false}; // change_config.sh が書き換える
 
 function showBeamInfo() {
   var b = BEAM_INFO, nn = b.A - b.Z;
@@ -423,7 +423,7 @@ function getParticleCategory(pdg) {
   if (pdg === 1000020040) return 'alpha';
   if (pdg === 22) return 'gamma';
   if (pdg === 11 || pdg === -11) return 'electron';
-  if (pdg === 1000932250) return 'heavy'; // 225Np (PDG = 10LZZZAAAI)
+  if (pdg === 1000841900) return 'heavy'; // 190Po (PDG = 10LZZZAAAI)
   return 'other';
 }
 

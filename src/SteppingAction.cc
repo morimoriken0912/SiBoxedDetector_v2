@@ -35,7 +35,7 @@ void SteppingAction::UserSteppingAction(const G4Step* step)
     else if (pName == "e-" || pName == "e+") {
       fEventAction->AddGenElectron();
     }
-    else if (track->GetDefinition()->GetPDGEncoding() == 1000932250) {
+    else if (track->GetDefinition()->GetPDGEncoding() == 1000841900) {
     }
     else if (pType == "nucleus") {
       fEventAction->AddGenHeavyIon(); // その他の重イオンもカウント

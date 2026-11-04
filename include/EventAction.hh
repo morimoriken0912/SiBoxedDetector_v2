@@ -9,6 +9,7 @@
 #include "globals.hh"
 #include <vector> // ファイル上部に追加
 #include <array>
+#include <cmath>
 
 namespace B1
 {
@@ -24,8 +25,17 @@ class EventAction : public G4UserEventAction
     void BeginOfEventAction(const G4Event* event) override;
     void EndOfEventAction(const G4Event* event) override;
 
-    // 素子IDは 0 〜 1599。DetectorConstruction のコピー番号と同じ
-    static constexpr G4int kNPixelTotal = 1600;
+    // 素子の配置。DetectorConstruction.cc / makeSiViewer_all.cc の値と一致させること。
+    // z方向の素子数 kNPixZ は change_nz.sh が書き換える。
+    static constexpr G4int kNPixX = 14;
+    static constexpr G4int kNPixY = 14;
+    static constexpr G4int kNPixZ = 14;
+
+    // 素子IDは 0 〜 kNPixelTotal-1。DetectorConstruction のコピー番号と同じ。
+    //   面0 (+z): kNPixX*kNPixY、面1,2 (±x): kNPixZ*kNPixY ずつ、面3,4 (±y): kNPixX*kNPixZ ずつ
+    //   (既定の 20 x 30 x 10 では 600 + 300 + 300 + 200 + 200 = 1600)
+    static constexpr G4int kNPixelTotal =
+      kNPixX * kNPixY + 2 * kNPixZ * kNPixY + 2 * kNPixX * kNPixZ;
 
     void AddPixelEdep(G4int id, G4double edep, G4double time, G4int pdg)
     {

@@ -1,0 +1,78 @@
+/// \file EventAction.hh
+/// \brief Definition of the B1::EventAction class
+///        1イベント中の素子ごとのエネルギー損失を集計し、イベント終了時にROOTへ書き出す
+
+#ifndef B1EventAction_h
+#define B1EventAction_h 1
+
+#include "G4UserEventAction.hh"
+#include "globals.hh"
+#include <vector> // ファイル上部に追加
+#include <array>
+#include <cmath>
+
+namespace B1
+{
+
+class RunAction;
+
+class EventAction : public G4UserEventAction
+{
+  public:
+    EventAction(RunAction* runAction);
+    ~EventAction() override = default;
+
+    void BeginOfEventAction(const G4Event* event) override;
+    void EndOfEventAction(const G4Event* event) override;
+
+    // 素子の配置。DetectorConstruction.cc / makeSiViewer_all.cc の値と一致させること。
+    // z方向の素子数 kNPixZ は change_nz.sh が書き換える。
+    static constexpr G4int kNPixX = 20;
+    static constexpr G4int kNPixY = 30;
+    static constexpr G4int kNPixZ = 10;
+
+    // 素子IDは 0 〜 kNPixelTotal-1。DetectorConstruction のコピー番号と同じ。
+    //   面0 (+z): kNPixX*kNPixY、面1,2 (±x): kNPixZ*kNPixY ずつ、面3,4 (±y): kNPixX*kNPixZ ずつ
+    //   (既定の 20 x 30 x 10 では 600 + 300 + 300 + 200 + 200 = 1600)
+    static constexpr G4int kNPixelTotal =
+      kNPixX * kNPixY + 2 * kNPixZ * kNPixY + 2 * kNPixX * kNPixZ;
+
+    void AddPixelEdep(G4int id, G4double edep, G4double time, G4int pdg)
+    {
+      if (id < 0 || id >= kNPixelTotal) return;
+
+      // 既に「同じピクセル」で「同じ粒子(PDG)」が「ほぼ同時刻(例:1ns以内)」に
+      // エネルギーを落としていれば、同じヒットとみなしてエネルギーを足す
+      for (size_t i = 0; i < fHitPixel.size(); ++i) {
+        if (fHitPixel[i] == id && fHitPdg[i] == pdg && std::abs(fHitTime[i] - time) < 1.0) {
+          fHitEdep[i] += edep;
+          return;
+        }
+      }
+      // 見つからなければ、新しい独立したヒットとして追加（これで重イオンとα線が分離される！）
+      fHitPixel.push_back(id);
+      fHitEdep.push_back(edep);
+      fHitTime.push_back(time);
+      fHitPdg.push_back(pdg);
+    }
+
+    void AddGenAlpha() { fNGenAlphas++; }
+    void AddGenGamma() { fNGenGammas++; }
+    void AddGenElectron() { fNGenElectrons++; }
+    void AddGenHeavyIon() { fNGenHeavyIons++; }
+
+  private:
+    std::vector<G4int> fHitPixel;
+    std::vector<G4double> fHitEdep;
+    std::vector<G4double> fHitTime;
+    std::vector<G4int> fHitPdg;
+    
+    G4int fNGenAlphas = 0;
+    G4int fNGenGammas = 0;
+    G4int fNGenElectrons = 0;
+    G4int fNGenHeavyIons = 0;
+};
+
+}  // namespace B1
+
+#endif

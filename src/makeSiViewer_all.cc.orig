@@ -32,7 +32,7 @@ static const int kNPixZ = 10;        // z方向の素子数
 static const double kPixSize = 7.5;  // Pixel size [mm]
 static const double kSensSize = 7.05;// Sensitive area size [mm]
 static const double kPixThick = 0.15;// Pixel thickness [mm]
-static const double kBinWidth = 0.1; // Default histogram bin width [MeV]
+static const double kBinWidth = 0.01; // Default histogram bin width [MeV]
 
 // ---------------------------------------------------------------------------
 // HTML Template. Data will be embedded in place of /*DATA_JSON*/null.
@@ -91,6 +91,7 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
   <select id="datasetSelect"></select>
 </div>
 <div class="sub" id="info"></div>
+<div class="sub" id="beamInfo" style="font-size:13px;"></div>
 
 <div class="controls">
   <fieldset>
@@ -139,6 +140,7 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
     </div>
     <div style="margin-bottom:6px; font-size:12px;">
       <label><input type="checkbox" id="chkCluster" checked> <b>Enable Clustering</b></label>
+      <span id="clusterTimeWrapper"> within <input type="number" id="clusterNs" min="1" step="1" value="20" style="width:50px;"> ns</span>
     </div>
     <div style="border-top: 1px solid var(--border); padding-top: 4px; line-height:1.3; font-size:12px;" id="effDisplay">
       Efficiency: ---
@@ -178,14 +180,14 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
     </div>
     <div class="daqrow">
       <button class="tgl" id="btnCoin" aria-pressed="false">Coincidence</button>
-      sum hits within <input type="number" id="daqCoin" min="0" step="0.1" value="1"> ns
+      sum hits within <input type="number" id="daqCoin" min="0" step="0.1" value="20"> ns
       <span class="note" style="margin:0;">(same event)</span>
     </div>
     <div class="daqrow">
       <button class="tgl" id="btnDaqThr" aria-pressed="false">Energy Threshold</button>
       ignore hits &le; <input type="number" id="daqThr" min="0" step="0.01" value="0.1"> MeV
     </div>
-    <div class="note" style="margin-top:2px;">Dead Time / Threshold: applied to 3D and histograms.<br>Coincidence: applied to Energy &amp; Time Distribution only (not 3D).</div>
+    <div class="note" style="margin-top:2px;">Dead Time / Threshold: applied to 3D, Efficiency, and histograms.<br>Coincidence: applied to Efficiency &amp; Histograms only (not 3D).</div>
   </fieldset>
 </div>
 
@@ -209,7 +211,7 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
       <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:6px;">
         <div style="font-weight:bold;">Energy Distribution</div>
         <div style="font-size:12px;">
-          <label style="margin-right:8px;">Bin Width: <input type="number" id="binw" min="0.1" step="0.1" value="0.1" style="width:64px;"> MeV</label>
+          <label style="margin-right:8px;">Bin Width: <input type="number" id="binw" min="0.01" step="0.1" value="0.01" style="width:64px;"> MeV</label>
           <button id="btnLogY" style="margin:0;">Y-axis: Log</button>
         </div>
       </div>
@@ -275,6 +277,21 @@ button.tgl.on{background:#2563eb;border-color:#2563eb;color:#fff}
 var ALL_DATA = /*DATA_JSON*/null;
 var DATA = ALL_DATA[0];
 
+// ビーム設定。change_beam.sh がこの1行を書き換える (手で編集しても可)。行頭の "var BEAM_INFO = " は変えないこと。
+var BEAM_INFO = {label: '190Po', symbol: 'Po', Z: 84, A: 190, Q: 42, E: 130, fullChain: false}; // change_beam.sh が書き換える
+
+function showBeamInfo() {
+  var b = BEAM_INFO, nn = b.A - b.Z;
+  var decay = b.fullChain
+    ? '<b style="color:#d97706;">Full decay chain</b> (no restriction)'
+    : '<b style="color:#0d9488;">' + b.label + ' only</b> (nucleusLimits ' + b.A + ' ' + b.A + ' ' + b.Z + ' ' + b.Z + '; daughters do not decay)';
+  $('beamInfo').innerHTML =
+    '<b>Beam:</b> ' + b.label + ' (Z=' + b.Z + ', N=' + nn + ', A=' + b.A + ')' +
+    ' / <b>Charge:</b> ' + b.Q + '+' +
+    ' / <b>Energy:</b> ' + b.E + ' MeV' +
+    ' / <b>Decay:</b> ' + decay;
+}
+
 // Populate dropdown
 var sel = document.getElementById('datasetSelect');
 ALL_DATA.forEach(function(d, idx) {
@@ -292,6 +309,7 @@ sel.addEventListener('change', function(){
 var G, EV, PIX, EN, T, PDG, N, NTOT, ELS, C, EVSEEN, HIST_IMP, HIST_DEC, PFACE;
 var rawEmax, MAXEV, rawTmin, rawTmax, BW, EMAX, NB;
 var RAWE_BASE, SORT_IDX, AIDX, NAI = 0, DS_VER = 0, QEV, QPIX, QEN, QT, QPDG, NQ = 0, HKEY = '';
+var A_COINC_E; // 各ヒット(AIDX)に対応するコインシデンス合算エネルギーを保持
 
 var FACE_NAMES = ['+z (Back)', '+x (Side)', '-x (Side)', '+y (Side)', '-y (Side)'];
 var VH = 700, HH = 220, HL = 64, HR = 12, HT = 14, HB = 34, DEAD = '#b9bfc8';
@@ -308,7 +326,7 @@ function fmt(v){
 }
 
 var S = {
-  ptype: 'all', clustering: true,
+  ptype: 'all', clustering: true, clusterNs: 10,
   showAllEv: true, evID: 0,
   showAllPix: true, pixID: 0,
   mode: 'all', thr: 100, emin: 0, emax: 10, vmin: 0, vmax: 10,
@@ -383,6 +401,7 @@ function initDataset() {
   
   $('info').textContent = 'File: ' + DATA.file + ' / Events: ' + DATA.nEvents +
     ' / Hit rows: ' + N + ' / Pixels: ' + G.nx + 'x' + G.ny + 'x' + G.nz + ' / Pitch: ' + G.pitch + ' mm';
+  showBeamInfo();
   $('timeInfo').textContent = 'Recorded Time: Min ' + fmt(rawTmin) + ' µs to Max ' + fmt(rawTmax) + ' µs';
 
   syncInputs();
@@ -404,7 +423,7 @@ function getParticleCategory(pdg) {
   if (pdg === 1000020040) return 'alpha';
   if (pdg === 22) return 'gamma';
   if (pdg === 11 || pdg === -11) return 'electron';
-  if (pdg === 1000862040) return 'heavy'; // 204Rn
+  if (pdg === 1000841900) return 'heavy'; // 190Po (PDG = 10LZZZAAAI)
   return 'other';
 }
 
@@ -518,51 +537,89 @@ function buildQ() {
              D.dtOn ? D.dtNs : '-', D.thOn ? D.thMeV : '-', D.coOn ? D.coNs : '-'].join('|');
   if (key === HKEY) return;
   HKEY = key;
+  
   var co = D.coOn, win = D.coNs * 1e-3 + 1e-9;
   QEV = new Int32Array(NAI); QPIX = new Int32Array(NAI); QEN = new Float64Array(NAI);
   QT = new Float64Array(NAI); QPDG = new Int32Array(NAI); NQ = 0;
+  A_COINC_E = new Float64Array(NAI); // 初期化
+  
   var gOn = false, gEv = -1, gT0 = 0, gE = 0, gMax = -1, gPix = 0, gPdg = 0;
+  var group_m = []; // 同一コインシデンスグループに属する AIDX のインデックスを保持
+  
   function put(ev, pix, e, t, pdg) { QEV[NQ] = ev; QPIX[NQ] = pix; QEN[NQ] = e; QT[NQ] = t; QPDG[NQ] = pdg; NQ++; }
+  
   for (var m = 0; m < NAI; m++) {
     var k = AIDX[m], pdg = PDG ? PDG[k] : 0, p = PIX[k];
     if (!matchParticleFilter(pdg) || !faceSelected(p) || (!S.showAllEv && EV[k] !== S.evID) || (!S.showAllPix && p !== S.pixID)) continue;
     var e = EN[k], t = T[k];
-    if (!co) { put(EV[k], p, e, t, pdg); continue; }
+    
+    if (!co) { 
+      put(EV[k], p, e, t, pdg); 
+      A_COINC_E[m] = e; // コインシデンスOFF時は単独のエネルギーを記録
+      continue; 
+    }
+    
     if (gOn && EV[k] === gEv && t - gT0 <= win) {
       gE += e;
       if (e > gMax) { gMax = e; gPix = p; gPdg = pdg; }
+      group_m.push(m);
     } else {
-      if (gOn) put(gEv, gPix, gE, gT0, gPdg);
+      if (gOn) {
+        put(gEv, gPix, gE, gT0, gPdg);
+        // グループが確定したら、属する全てのヒットに合算エネルギーを書き込む
+        for (var i = 0; i < group_m.length; i++) A_COINC_E[group_m[i]] = gE;
+      }
       gOn = true; gEv = EV[k]; gT0 = t; gE = e; gMax = e; gPix = p; gPdg = pdg;
+      group_m = [m];
     }
   }
-  if (gOn) put(gEv, gPix, gE, gT0, gPdg);
+  if (gOn) {
+    put(gEv, gPix, gE, gT0, gPdg);
+    for (var i = 0; i < group_m.length; i++) A_COINC_E[group_m[i]] = gE;
+  }
 }
 
 function computeCounts(){
   C.imp.fill(0); C.dec.fill(0); C.detCounts = 0;
   EVSEEN.imp.fill(0); EVSEEN.dec.fill(0);
-  var uniqueHits = {}; 
+  
+  // --- 1. 3D表示用（コインシデンス合算後のエネルギーでフィルタ） ---
   for (var mi = 0; mi < NAI; mi++) {
+    var e = A_COINC_E[mi]; // ここが単独エネルギー(EN[k])ではなく合算エネルギーになる
+    if (e <= 0) continue;  // buildQ() のフィルタで弾かれたものは e=0 になるのでスキップ
+    
     var k = AIDX[mi];
-    var pdgCode = PDG ? PDG[k] : 0;
-    if (!matchParticleFilter(pdgCode)) continue;
-    if (!S.showAllEv && EV[k] !== S.evID) continue;
     var p = PIX[k];
-    if (!faceSelected(p)) continue;   // only hits on the selected faces
-    if (!S.showAllPix && p !== S.pixID) continue;
-    var e = EN[k], t = T[k];
+    var t = T[k];
+    
+    // S.emin, S.emax (UI上のエネルギーフィルター) は「合算エネルギー(e)」と比較される
     if (e < S.emin || e > S.emax || t < S.tmin || t > S.tcurrent || p < 0 || p >= NTOT) continue;
-    if (S.clustering) {
-      var tKey = Math.floor(t * 100); 
-      var uniqKey = EV[k] + "_" + pdgCode + "_" + tKey;
-      if (!uniqueHits[uniqKey]) { uniqueHits[uniqKey] = true; C.detCounts++; }
-    } else {
-      C.detCounts++;
-    }
+    
     if (e >= S.thr) { C.imp[p]++; EVSEEN.imp[EV[k]] = 1; }
     else            { C.dec[p]++; EVSEEN.dec[EV[k]] = 1; }
   }
+
+  // --- 2. Efficiency計算用（前回修正した通りでOK） ---
+  var uniqueHits = {}; 
+  var clusterUs = S.clusterNs / 1000;
+  
+  for (var q = 0; q < NQ; q++) {
+      var ev = QEV[q];
+      var p = QPIX[q];
+      var e = QEN[q];
+      var t = QT[q];
+      var pdgCode = QPDG[q];
+      
+      if (e < S.emin || e > S.emax || t < S.tmin || t > S.tcurrent || p < 0 || p >= NTOT) continue;
+      
+      if (S.clustering) {
+        var tKey = clusterUs > 0 ? Math.floor(t / clusterUs) : t; 
+        var uniqKey = ev + "_" + pdgCode + "_" + tKey;
+        if (!uniqueHits[uniqKey]) { uniqueHits[uniqKey] = true; C.detCounts++; }
+      } else {
+        C.detCounts++;
+      }
+    }
 }
 
 function buildHist(){
@@ -788,7 +845,7 @@ function updateStats(){
 }
 
 var pendRefresh = false, pend3D = false;
-function refresh(){ computeCounts(); draw3D(); buildHist(); drawHist(); drawTimeHist(); updateStats(); }
+ function refresh(){ buildQ(); computeCounts(); draw3D(); buildHist(); drawHist(); drawTimeHist(); updateStats(); }
 function scheduleRefresh(){ if (pendRefresh) return; pendRefresh = true; requestAnimationFrame(function(){ pendRefresh = false; refresh(); }); }
 function scheduleDraw3D(){ if (pend3D) return; pend3D = true; requestAnimationFrame(function(){ pend3D = false; draw3D(); }); }
 function syncInputs(){ $('emin').value = Math.round(S.emin * 1000) / 1000; $('emax').value = Math.round(S.emax * 1000) / 1000; $('tmin').value = Math.round(S.tmin * 10000) / 10000; $('tmax').value = Math.round(S.tmax * 10000) / 10000; $('timeSlider').value = timeToSlider(S.tcurrent); $('timeCurrentDisplay').textContent = fmt(S.tcurrent); }
@@ -805,7 +862,21 @@ $('btnPlayTime').addEventListener('click', function(){ if (playTimer) { stopTime
 $('timeSlider').addEventListener('input', function(){ stopTimePlay(); S.tcurrent = sliderToTime(parseFloat(this.value)); $('timeCurrentDisplay').textContent = fmt(S.tcurrent); scheduleRefresh(); });
 
 Array.prototype.forEach.call(document.querySelectorAll('input[name=ptype]'), function(el){ el.addEventListener('change', function(){ if (el.checked) { S.ptype = el.value; refresh(); } }); });
-$('chkCluster').addEventListener('change', function(){ S.clustering = this.checked; refresh(); });
+$('chkCluster').addEventListener('change', function(){ 
+  S.clustering = this.checked; 
+  var wrap = $('clusterTimeWrapper');
+  if(wrap) {
+    wrap.style.opacity = S.clustering ? '1' : '0.4';
+    wrap.style.pointerEvents = S.clustering ? 'auto' : 'none';
+  }
+  refresh(); 
+});
+
+$('clusterNs').addEventListener('change', function(){ 
+  S.clusterNs = Math.max(1, parseFloat(this.value) || 10);
+  this.value = S.clusterNs;
+  refresh(); 
+});
 $('chkAllEv').addEventListener('change', function(){ S.showAllEv = this.checked; var ctl = $('evControls'); ctl.style.opacity = S.showAllEv ? '0.4' : '1'; ctl.style.pointerEvents = S.showAllEv ? 'none' : 'auto'; refresh(); });
 $('evSlider').addEventListener('input', function(){ var v = parseInt(this.value, 10); $('evNum').value = v; S.evID = v; scheduleRefresh(); });
 $('evNum').addEventListener('change', function(){ var v = parseInt(this.value, 10); if (isNaN(v)) v = 0; v = clamp(v, 0, MAXEV); this.value = v; $('evSlider').value = v; S.evID = v; refresh(); });

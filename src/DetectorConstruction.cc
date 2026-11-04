@@ -39,9 +39,9 @@ G4VPhysicalVolume* DetectorConstruction::Construct() {
   const G4double sensSize = 7.05 * mm;  
   const G4double pixGap = 0.1 * mm;  // Gapは0.1mm固定
   
-  const G4int nPixX = 20;
-  const G4int nPixY = 30;
-  const G4int nPixZ = 10;
+  const G4int nPixX = 14;
+  const G4int nPixY = 14;
+  const G4int nPixZ = 14;
 
   const G4double pixThick = 150 * um;            
   const G4double deadThick = 0.177 * um;         
