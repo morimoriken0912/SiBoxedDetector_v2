@@ -35,8 +35,8 @@ G4VPhysicalVolume* DetectorConstruction::Construct() {
   // --- 検出器のパラメータ ---
   G4Material* si_mat = nist->FindOrBuildMaterial("G4_Si");
 
-  const G4double pixSize = 7.5 * mm;  
-  const G4double sensSize = 7.05 * mm;  
+  const G4double pixSize = 7.52 * mm;  
+  const G4double sensSize = 6.97 * mm;  
   const G4double pixGap = 0.1 * mm;  // Gapは0.1mm固定
   
   const G4int nPixX = 14;

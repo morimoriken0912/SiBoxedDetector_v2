@@ -1,7 +1,23 @@
+#!/bin/bash
+
 cd ../build/
 make -j$(nproc)
 ./exampleB1 run.mac 10000
 cd ../src/
+
+# 変数の設定（HTML名は今まで通り他のshファイルから置換されます）
+ROOT_FILE="../build/SiDetector.root"
+ROOT_SMEAR="../build/SiDetector_smear.root"
+HTML_OUT="SiViewer_215AcAll.html"
+
+echo "=== Applying 30keV Smearing ==="
+g++ -O2 add_smearing.cc -o add_smearing $(root-config --cflags --libs)
+./add_smearing "$ROOT_FILE"
+
+echo "=== Generating HTML Viewer ==="
 g++ -O2 makeSiViewer_all.cc -o makeSiViewer_all $(root-config --cflags --libs)
-./makeSiViewer_all ../build/SiDetector.root SiViewer_190PoAll.html
-explorer.exe SiViewer_190PoAll.html
+
+# 元のファイルとスメア版の両方を引数として渡す
+./makeSiViewer_all  "$ROOT_SMEAR" "$HTML_OUT" "$ROOT_FILE"
+
+explorer.exe "$HTML_OUT"

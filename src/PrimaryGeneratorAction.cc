@@ -121,10 +121,10 @@ void PrimaryGeneratorAction::GeneratePrimaries(G4Event* event)
 
 // ビーム: 楕円形ガウシアン分布
   // 直径を「半値全幅(FWHM)」と解釈して標準偏差(sigma)を計算する場合
-  G4double fwhmX = 15.0 * cm;
-  G4double fwhmY = 20.0 * cm;
-  G4double sigmaX = fwhmX / 3.92;
-  G4double sigmaY = fwhmY / 3.92;//95%区間
+  //G4double fwhmX = 15.0 * cm;
+  //G4double fwhmY = 20.0 * cm;
+  G4double sigmaX = 4.239*cm;
+  G4double sigmaY = 5.297*cm;//99%区間
 
   G4double x0 = G4RandGauss::shoot(0., sigmaX);
   G4double y0 = G4RandGauss::shoot(0., sigmaY);

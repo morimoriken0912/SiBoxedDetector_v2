@@ -278,7 +278,7 @@ var ALL_DATA = /*DATA_JSON*/null;
 var DATA = ALL_DATA[0];
 
 // ビーム設定。change_beam.sh がこの1行を書き換える (手で編集しても可)。行頭の "var BEAM_INFO = " は変えないこと。
-var BEAM_INFO = {label: '190Po', symbol: 'Po', Z: 84, A: 190, Q: 42, E: 130, fullChain: false}; // change_config.sh が書き換える
+var BEAM_INFO = {label: '215Ac', symbol: 'Ac', Z: 89, A: 215, Q: 50, E: 344, fullChain: true}; // change_beam.sh が書き換える
 
 function showBeamInfo() {
   var b = BEAM_INFO, nn = b.A - b.Z;
@@ -293,12 +293,14 @@ function showBeamInfo() {
 }
 
 // Populate dropdown
+// 修正後
 var sel = document.getElementById('datasetSelect');
 ALL_DATA.forEach(function(d, idx) {
   var opt = document.createElement('option');
   opt.value = idx;
-  var gap = (d.geom.pitch - d.geom.size).toFixed(1);
-  opt.textContent = d.file + " (Gap: " + gap + " mm)";
+  var isSmeared = d.file.indexOf('_smear') !== -1;
+  var label = isSmeared ? "with smearing" : "without smearing";
+  opt.textContent = d.file + " (" + label + ")";
   sel.appendChild(opt);
 });
 sel.addEventListener('change', function(){
@@ -423,7 +425,7 @@ function getParticleCategory(pdg) {
   if (pdg === 1000020040) return 'alpha';
   if (pdg === 22) return 'gamma';
   if (pdg === 11 || pdg === -11) return 'electron';
-  if (pdg === 1000841900) return 'heavy'; // 190Po (PDG = 10LZZZAAAI)
+  if (pdg === 1000892150) return 'heavy'; // 215Ac (PDG = 10LZZZAAAI)
   return 'other';
 }
 
